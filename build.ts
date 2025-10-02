@@ -29,59 +29,81 @@ if (existsSync(distPath)) rmSync(distPath, { recursive: true, force: true });
 if (existsSync(vscodePath)) rmSync(vscodePath, { recursive: true, force: true });
 
 try {
-  // Clone VSCode repository
-  console.log(`📥 Cloning VSCode ${VSCODE_VERSION}...`);
-  execSync(`git clone --depth 1 --branch ${VSCODE_VERSION} ${VSCODE_REPO} vscode-source`, {
-    stdio: 'inherit',
-    cwd: __dirname
-  });
-
-  const vscodeDir = join(__dirname, 'vscode-source');
-
-  // Install dependencies
-  console.log('📦 Installing VSCode dependencies...');
-  execSync('npm ci', {
-    stdio: 'inherit',
-    cwd: vscodeDir
-  });
-
-  // Build VSCode for web (compile + bundle, no dev server)
-  console.log('🔨 Building VSCode for web...');
-  execSync('npm run gulp -- vscode-web', {
-    stdio: 'inherit',
-    cwd: vscodeDir
-  });
-
   // Create dist directory
   mkdirSync(distPath, { recursive: true });
 
-  // Find the actual build output directory
-  console.log('📋 Locating build output...');
-  const buildDir = join(vscodeDir, '.build');
+  // Download VSCode web assets from GitHub releases
+  console.log(`📥 Downloading VSCode Web ${VSCODE_VERSION} assets...`);
+  const downloadUrl = `https://github.com/microsoft/vscode/releases/download/${VSCODE_VERSION}/vscode-web-${VSCODE_VERSION}.tar.gz`;
 
-  if (existsSync(buildDir)) {
-    const buildContents = readdirSync(buildDir);
-    console.log(`📂 Build directory contents: ${buildContents.join(', ')}`);
+  try {
+    execSync(`curl -L "${downloadUrl}" | tar -xz -C "${distPath}" --strip-components=1`, {
+      stdio: 'inherit',
+      cwd: __dirname
+    });
+    console.log('✅ Downloaded pre-built VSCode Web assets');
+  } catch (downloadError) {
+    console.log('⚠️ Pre-built assets not available, building from source...');
 
-    // Look for vscode-web directory
-    const webBuildDir = join(buildDir, 'vscode-web');
-    if (existsSync(webBuildDir)) {
-      console.log('📦 Copying VSCode Web build...');
-      cpSync(webBuildDir, distPath, { recursive: true });
-    } else {
-      // Fallback: look for any directory with web assets
-      for (const item of buildContents) {
-        const itemPath = join(buildDir, item);
-        if (item.includes('web') || item.includes('vscode')) {
-          console.log(`📦 Copying from ${item}...`);
-          cpSync(itemPath, distPath, { recursive: true });
-          break;
-        }
+    // Fallback: Clone and build from source
+    console.log(`📥 Cloning VSCode ${VSCODE_VERSION}...`);
+    execSync(`git clone --depth 1 --branch ${VSCODE_VERSION} ${VSCODE_REPO} vscode-source`, {
+      stdio: 'inherit',
+      cwd: __dirname
+    });
+
+    const vscodeDir = join(__dirname, 'vscode-source');
+
+    // Install dependencies with minimal native compilation
+    console.log('📦 Installing VSCode dependencies...');
+    execSync('npm ci --omit=optional --ignore-scripts --no-audit --no-fund', {
+      stdio: 'inherit',
+      cwd: vscodeDir,
+      env: {
+        ...process.env,
+        npm_config_build_from_source: 'false',
+        npm_config_optional: 'false'
+      }
+    });
+
+    // Try to build web version
+    console.log('🔨 Building VSCode for web...');
+    try {
+      execSync('npm run compile-web', {
+        stdio: 'inherit',
+        cwd: vscodeDir
+      });
+    } catch {
+      // Fallback to gulp build
+      execSync('npm run gulp -- compile-web', {
+        stdio: 'inherit',
+        cwd: vscodeDir
+      });
+    }
+
+    // Find and copy build output
+    console.log('📋 Locating build output...');
+    const possiblePaths = [
+      join(vscodeDir, 'out-vscode-web'),
+      join(vscodeDir, '.build', 'vscode-web'),
+      join(vscodeDir, 'out', 'vscode-web'),
+      join(vscodeDir, 'dist')
+    ];
+
+    let foundOutput = false;
+    for (const outputPath of possiblePaths) {
+      if (existsSync(outputPath)) {
+        console.log(`📦 Copying VSCode Web build from ${outputPath}...`);
+        cpSync(outputPath, distPath, { recursive: true });
+        foundOutput = true;
+        break;
       }
     }
-  } else {
-    console.error('❌ Build directory not found');
-    process.exit(1);
+
+    if (!foundOutput) {
+      console.error('❌ Could not find build output directory');
+      process.exit(1);
+    }
   }
 
   console.log('✅ VSCode Web build completed successfully!');
