@@ -1,0 +1,25 @@
+{
+  "name": "vscode-web",
+  "version": "1.96.0",
+  "private": true,
+  "description": "VSCode Web build for Alto monorepo",
+  "type": "module",
+  "files": [
+    "dist/**/*"
+  ],
+  "exports": {
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "vercel-build": "npm run build",
+    "clean": "rm -rf dist vscode-source",
+    "dev": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "tsx": "^4.19.1",
+    "typescript": "5.5.4"
+  }
+}
